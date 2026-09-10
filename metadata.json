@@ -1,0 +1,10 @@
+{
+  "name": "Real-time Facial Recognition System for Crowd Dynamics in Public Spaces",
+  "description": "Low-latency crowd dynamics monitoring and facial recognition system with cross-camera tracking, optical flow analysis, occlusion handling, and suspicious activity alerts.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
