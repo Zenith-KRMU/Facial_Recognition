@@ -38,7 +38,12 @@ import {
   Zap,
   UserCheck,
   UserPlus,
+  Sliders,
+  Cloud,
+  Leaf,
 } from 'lucide-react';
+import { loadSkillsConfig, subscribeSkillsConfig } from '../skills/skillsRegistry';
+import { SkillsConfig } from '../skills/types';
 
 interface VisionCanvasProps {
   camera: CameraFeedInfo;
@@ -57,6 +62,7 @@ interface VisionCanvasProps {
   onTriggerAlert: (alert: SuspiciousAlert) => void;
   onCameraStatusChange?: (status: 'ONLINE' | 'ACTIVE_RECORDING' | 'PERMISSION_REQUIRED' | 'OFFLINE') => void;
   onOpenEnrollModal?: (faceSnapshot?: string, embedding?: number[]) => void;
+  onOpenSkillsModal?: () => void;
 }
 
 export function VisionCanvas({
@@ -76,12 +82,23 @@ export function VisionCanvas({
   onTriggerAlert,
   onCameraStatusChange,
   onOpenEnrollModal,
+  onOpenSkillsModal,
 }: VisionCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+
+  // Pluggable Skills & Inference Engine Configuration
+  const [skillsConfig, setSkillsConfig] = useState<SkillsConfig>(loadSkillsConfig());
+
+  useEffect(() => {
+    const unsub = subscribeSkillsConfig((updated) => {
+      setSkillsConfig(updated);
+    });
+    return unsub;
+  }, []);
 
   // Performance Mode (adaptive cross-device scaling: AUTO | TURBO | BALANCED | ECO)
   const [perfMode, setPerfMode] = useState<'AUTO' | 'TURBO' | 'BALANCED' | 'ECO'>('AUTO');
@@ -388,19 +405,113 @@ export function VisionCanvas({
           // Render to 480x270 offscreen buffer
           inferCtx.drawImage(activeSource, 0, 0, INFERENCE_WIDTH, INFERENCE_HEIGHT);
 
+          // -------------------------------------------------------------
+          // 1. CLOUD / REMOTE AI INFERENCE PIPELINE (DeepSeek / Qwen / Ollama / Gemini)
+          // -------------------------------------------------------------
+          if (skillsConfig.engine === 'cloud_neural') {
+            try {
+              const activeSkillNames = Object.entries(skillsConfig.skills)
+                .filter(([_, s]) => s.enabled)
+                .map(([id]) => id);
+
+              const jpegData = inferCanvas.toDataURL('image/jpeg', 0.55);
+
+              const res = await fetch('/api/cloud-ai/vision-sentry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  image: jpegData,
+                  provider: skillsConfig.provider,
+                  endpoint: skillsConfig.providerEndpoint,
+                  model: skillsConfig.modelName,
+                  apiKey: skillsConfig.apiKey,
+                  cameraId: camera.id,
+                  activeSkills: activeSkillNames,
+                }),
+              });
+
+              if (res.ok) {
+                const payload = await res.json();
+                if (payload.success && payload.data) {
+                  const cloudPeople: TrackedPerson[] = (payload.data.people || []).map((p: any, idx: number) => ({
+                    id: p.id || `CP_${idx + 1}`,
+                    clusterId: p.clusterId || `Person ${idx + 1}`,
+                    label: p.label || `Person ${idx + 1}`,
+                    matchConfidence: 94.0,
+                    status: p.status || 'UNREGISTERED',
+                    camera: camera.id,
+                    x: p.x,
+                    y: p.y,
+                    boxWidth: p.boxWidth || 12,
+                    boxHeight: p.boxHeight || 24,
+                    vx: 0,
+                    vy: 0,
+                    speed: 0.2,
+                    directionDeg: 0,
+                    occlusionPercent: p.occlusionPercent || 0,
+                    occlusionType: 'NONE',
+                    facialLandmarksDetected: false,
+                    landmarks: [],
+                    embeddingSample: [],
+                    timeInFrameSec: 2,
+                    crossCameraTimeline: [],
+                    riskScore: p.riskScore || 10,
+                  }));
+
+                  const cloudObjects: IdentifiedObject[] = (payload.data.objects || []).map((o: any, idx: number) => ({
+                    id: o.id || `CO_${idx + 1}`,
+                    class: o.class || 'object',
+                    category: o.category || 'TECH',
+                    isDangerous: !!o.isDangerous,
+                    score: o.score || 90,
+                    camera: camera.id,
+                    x: o.x,
+                    y: o.y,
+                    width: o.width || 10,
+                    height: o.height || 10,
+                    isUnattended: !!o.isUnattended,
+                    unattendedDurationSec: o.isUnattended ? 10 : 0,
+                    detectedAt: new Date().toLocaleTimeString(),
+                  }));
+
+                  if (payload.data.alerts && payload.data.alerts.length > 0) {
+                    payload.data.alerts.forEach((alt: any) => onTriggerAlert(alt));
+                  }
+
+                  setLocalTrackedPeople(cloudPeople);
+                  setLocalDetectedObjects(cloudObjects);
+                  latestDetectionsRef.current = { people: cloudPeople, objects: cloudObjects };
+                  onDetectionsUpdate(cloudPeople, cloudObjects);
+                }
+              }
+            } catch (cloudErr) {
+              console.warn('Cloud vision request error:', cloudErr);
+            }
+
+            isInferringRef.current = false;
+            timerId = setTimeout(runInferenceCycle, skillsConfig.cloudSampleIntervalMs || 2400);
+            return;
+          }
+
+          // -------------------------------------------------------------
+          // 2. PLUGGABLE SKILLS LOCAL INFERENCE PIPELINE
+          // -------------------------------------------------------------
+          const isFaceSkillActive = skillsConfig.skills.face_reid?.enabled ?? true;
+          const isHazardSkillActive = skillsConfig.skills.hazard_sentry?.enabled ?? true;
+
           const { blazeFaceModel, cocoModel } = getVisionModels();
           const enrolledFaces = getEnrolledFaces();
           const cycle = inferenceCycleRef.current++;
 
           // 1. Run BlazeFace CNN on downscaled 480x270 canvas
           let facePredictions: any[] = [];
-          if (blazeFaceModel) {
+          if (isFaceSkillActive && blazeFaceModel) {
             facePredictions = await blazeFaceModel.estimateFaces(inferCanvas, false);
           }
 
           // 2. Run COCO-SSD on downscaled 480x270 canvas (interleaved for optimal GPU performance)
           let objectPredictions: any[] = [];
-          const shouldRunObjects = displayOptionsRef.current.showObjects && cocoModel;
+          const shouldRunObjects = isHazardSkillActive && displayOptionsRef.current.showObjects && cocoModel;
           if (shouldRunObjects && cycle % 2 === 0) {
             objectPredictions = await cocoModel.detect(inferCanvas, 25, 0.30);
           }
@@ -739,10 +850,17 @@ export function VisionCanvas({
         if (!isCancelled) {
           const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || (navigator as any).maxTouchPoints > 0 || window.innerWidth < 768);
           let delay = 50;
-          if (perfMode === 'TURBO') delay = 25;
-          else if (perfMode === 'ECO') delay = 130;
-          else if (perfMode === 'BALANCED') delay = 65;
-          else delay = isMobile ? 95 : 45; // AUTO
+          if (skillsConfig.engine === 'cloud_neural') {
+            delay = skillsConfig.cloudSampleIntervalMs || 2400;
+          } else if (skillsConfig.engine === 'eco_adaptive') {
+            delay = 1200; // 1.2s delay between local CNN passes: drops device CPU by 90%!
+          } else if (skillsConfig.engine === 'turbo_local') {
+            delay = 30; // Continuous WebGL
+          } else if (perfMode === 'ECO') {
+            delay = 600;
+          } else {
+            delay = isMobile ? 350 : 150;
+          }
 
           timerId = setTimeout(runInferenceCycle, delay);
         }
@@ -755,7 +873,7 @@ export function VisionCanvas({
       isCancelled = true;
       if (timerId) clearTimeout(timerId);
     };
-  }, [modelsReady, cameraActive, customMediaActive, camera.id, perfMode]);
+  }, [modelsReady, cameraActive, customMediaActive, camera.id, perfMode, skillsConfig]);
 
   // 5. Dedicated 60 FPS Synchronous Canvas Render Loop
   useEffect(() => {
@@ -818,23 +936,29 @@ export function VisionCanvas({
       }
 
       // Draw Optical Flow Motion Vectors
-      if (opts.showOpticalFlow && currentPeople.length > 0) {
+      const isFlowEnabled = skillsConfig.skills.optical_flow?.enabled ?? true;
+      if (opts.showOpticalFlow && isFlowEnabled && currentPeople.length > 0) {
         drawRealOpticalFlow(ctx, width, height, currentPeople);
       }
 
       // Draw Identified Objects (COCO-SSD)
-      if (opts.showObjects && currentObjects.length > 0) {
+      const isHazardEnabled = skillsConfig.skills.hazard_sentry?.enabled ?? true;
+      if (opts.showObjects && isHazardEnabled && currentObjects.length > 0) {
         currentObjects.forEach((obj) => {
           const isSelected = opts.selectedObjectId === obj.id;
           drawIdentifiedObject(ctx, width, height, obj, isSelected);
         });
       }
 
-      // Draw Tracked Faces (BlazeFace)
-      currentPeople.forEach((person) => {
-        const isSelected = opts.selectedPersonId === person.id;
-        drawTrackedFace(ctx, width, height, person, isSelected, opts.showBoundingBoxes, opts.showLandmarks, tick);
-      });
+      // Draw Tracked Faces (BlazeFace / Cloud AI)
+      const isFaceEnabled = skillsConfig.skills.face_reid?.enabled ?? true;
+      const isPrivacyGuardActive = skillsConfig.skills.privacy_guard?.enabled ?? false;
+      if (isFaceEnabled || skillsConfig.engine === 'cloud_neural') {
+        currentPeople.forEach((person) => {
+          const isSelected = opts.selectedPersonId === person.id;
+          drawTrackedFace(ctx, width, height, person, isSelected, opts.showBoundingBoxes, opts.showLandmarks, tick, isPrivacyGuardActive);
+        });
+      }
 
       // Restore PTZ Transform
       ctx.restore();
@@ -1144,19 +1268,26 @@ export function VisionCanvas({
           </button>
         )}
 
-        {/* Cross-Device Performance Mode Switcher */}
-        <button
-          onClick={() => {
-            const modes: Array<'AUTO' | 'TURBO' | 'BALANCED' | 'ECO'> = ['AUTO', 'TURBO', 'BALANCED', 'ECO'];
-            const next = modes[(modes.indexOf(perfMode) + 1) % modes.length];
-            setPerfMode(next);
-          }}
-          className="px-2.5 py-1.5 text-xs font-mono rounded-xl glass hover:bg-white/[0.08] border border-white/[0.1] text-slate-300 hover:text-white transition-all flex items-center gap-1.5 backdrop-blur-xl shadow-lg"
-          title={`Adaptive Performance Mode: ${perfMode}. Click to cycle between Auto, Turbo, Balanced, and Eco.`}
-        >
-          <Zap className={`w-3.5 h-3.5 ${perfMode === 'ECO' ? 'text-emerald-400' : perfMode === 'TURBO' ? 'text-amber-400' : 'text-violet-400'}`} />
-          <span>{perfMode}</span>
-        </button>
+        {/* Pluggable AI Skills & Inference Engine Manager */}
+        {onOpenSkillsModal && (
+          <button
+            onClick={onOpenSkillsModal}
+            className={`px-3 py-1.5 text-xs font-mono font-medium rounded-xl border transition-all flex items-center gap-1.5 backdrop-blur-xl shadow-lg ${
+              skillsConfig.engine === 'cloud_neural'
+                ? 'border-cyan-500/50 bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 ring-1 ring-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                : skillsConfig.engine === 'eco_adaptive'
+                ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 ring-1 ring-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                : 'glass hover:bg-white/[0.08] border-white/[0.1] text-slate-300 hover:text-white'
+            }`}
+            title="Configure Pluggable AI Skills & Inference Engine (Cloud Vision Engine / Eco Adaptive Edge)"
+          >
+            <Sliders className="w-3.5 h-3.5 text-violet-400" />
+            <span className="hidden sm:inline">AI Skills:</span>
+            <span className="font-bold">
+              {skillsConfig.engine === 'cloud_neural' ? 'Cloud AI' : skillsConfig.engine === 'eco_adaptive' ? 'Eco Edge' : 'Turbo WebGL'}
+            </span>
+          </button>
+        )}
 
         {/* PTZ Zoom Controls */}
         <div className="flex items-center glass border border-white/[0.1] rounded-xl p-0.5 backdrop-blur-xl shadow-lg">
@@ -1252,7 +1383,8 @@ function drawTrackedFace(
   isSelected: boolean,
   showBoundingBoxes: boolean,
   showLandmarks: boolean,
-  tick: number
+  tick: number,
+  isPrivacyGuardActive: boolean = false
 ) {
   const normW = p.boxWidth || 12;
   const normH = p.boxHeight || 14;
@@ -1260,6 +1392,25 @@ function drawTrackedFace(
   const boxH = Math.max(54, (normH / 100) * h);
   const x = (p.x / 100) * w - boxW / 2;
   const y = (p.y / 100) * h - boxH / 2;
+
+  // Privacy Guard Skill: If enabled, blur unregistered, non-flagged bystander faces
+  if (isPrivacyGuardActive && p.status === 'UNREGISTERED' && !p.isFlaggedSuspicious) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, boxW, boxH, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#a855f7';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔒 PRIVACY BLUR', x + boxW / 2, y + boxH / 2 + 4);
+    ctx.restore();
+    return;
+  }
 
   let color = '#a78bfa'; // Violet for unregistered
   let tagBg = 'rgba(139, 92, 246, 0.9)';

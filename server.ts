@@ -162,6 +162,212 @@ app.get("/api/project-specs", (req, res) => {
   });
 });
 
+// Helper to instantiate Gemini client with optional user-provided free key
+function getClientForRequest(userApiKey?: string): GoogleGenAI | null {
+  const key = userApiKey || process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  return new GoogleGenAI({
+    apiKey: key,
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      },
+    },
+  });
+}
+
+// -------------------------------------------------------------------------
+// DeepCamera-inspired Cloud / Remote AI Vision Sentry Endpoint
+// Supports: Ollama, OpenRouter (DeepSeek/Qwen), Groq, Custom vLLM, and Gemini
+// -------------------------------------------------------------------------
+app.post("/api/cloud-ai/vision-sentry", async (req, res) => {
+  try {
+    const {
+      image,
+      provider = "ollama",
+      endpoint = "http://localhost:11434/v1",
+      model = "qwen2.5-vl",
+      apiKey = "",
+      cameraId = "system-cam",
+      activeSkills = [],
+    } = req.body;
+
+    if (!image) {
+      return res.status(400).json({ error: "Missing frame image payload" });
+    }
+
+    const cleanBase64 = image.includes(",") ? image.split(",")[1] : image;
+
+    const visionPrompt = `You are a real-time CCTV crowd dynamics and public safety sentry engine.
+Analyze this video camera frame thoroughly and detect people, faces, objects, and crowd risks.
+Active Skills enabled: ${JSON.stringify(activeSkills)}.
+
+Return ONLY a valid JSON object matching this schema exactly without explanation or markdown:
+{
+  "people": [
+    {
+      "id": "P_1",
+      "clusterId": "Person 1",
+      "label": "Pedestrian 1",
+      "x": 48.5,
+      "y": 52.0,
+      "boxWidth": 12.0,
+      "boxHeight": 26.0,
+      "occlusionPercent": 15,
+      "riskScore": 10,
+      "status": "UNREGISTERED"
+    }
+  ],
+  "objects": [
+    {
+      "id": "OBJ_1",
+      "class": "backpack",
+      "category": "LUGGAGE",
+      "x": 55.0,
+      "y": 68.0,
+      "width": 8.0,
+      "height": 10.0,
+      "isDangerous": false,
+      "isUnattended": false,
+      "score": 92
+    }
+  ],
+  "metrics": {
+    "totalHeadcount": 1,
+    "averageDensity": 0.2,
+    "globalTurbulence": 0.04,
+    "occlusionRatioPercent": 0
+  },
+  "alerts": []
+}
+
+Notes:
+- x and y are percentage coordinates (0 to 100) indicating the center of the bounding box.
+- boxWidth and boxHeight are percentage dimensions (0 to 100) of the frame.
+- If weapons or knives are spotted, set isDangerous: true and add a CRITICAL alert.
+- If luggage is isolated without a person nearby, set isUnattended: true.`;
+
+    // 1. OPEN-SOURCE OPENAI-COMPATIBLE PROVIDERS (Ollama, OpenRouter, Groq, Custom vLLM)
+    if (provider !== "gemini") {
+      let targetEndpoint = endpoint;
+      let targetKey = apiKey;
+      let targetModel = model || "qwen2.5-vl";
+
+      if (provider === "ollama") {
+        targetEndpoint = endpoint || "http://localhost:11434/v1";
+        targetModel = model || "qwen2.5-vl";
+      } else if (provider === "openrouter") {
+        targetEndpoint = "https://openrouter.ai/api/v1";
+        targetKey = apiKey || process.env.OPENROUTER_API_KEY || "";
+        targetModel = model || "qwen/qwen-2.5-vl-72b-instruct:free";
+      } else if (provider === "groq") {
+        targetEndpoint = "https://api.groq.com/openai/v1";
+        targetKey = apiKey || process.env.GROQ_API_KEY || "";
+        targetModel = model || "llama-3.2-11b-vision-preview";
+      }
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (targetKey) {
+        headers["Authorization"] = `Bearer ${targetKey}`;
+      }
+
+      const chatUrl = targetEndpoint.endsWith("/")
+        ? `${targetEndpoint}chat/completions`
+        : targetEndpoint.endsWith("/chat/completions")
+        ? targetEndpoint
+        : `${targetEndpoint}/chat/completions`;
+
+      const openAiPayload = {
+        model: targetModel,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: visionPrompt },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${cleanBase64}`,
+                },
+              },
+            ],
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 1024,
+      };
+
+      const response = await fetch(chatUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(openAiPayload),
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Provider ${provider} (${targetModel}) returned HTTP ${response.status}: ${errorText}`);
+      }
+
+      const resJson = await response.json();
+      const content = resJson.choices?.[0]?.message?.content || "";
+      const cleanJson = content.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+      const parsed = JSON.parse(cleanJson);
+
+      return res.json({
+        success: true,
+        engine: `${provider}:${targetModel}`,
+        data: parsed,
+      });
+    }
+
+    // 2. GEMINI VISION FALLBACK / PROVIDER
+    const client = getClientForRequest(apiKey);
+    if (!client) {
+      return res.status(401).json({
+        error: "NO_API_KEY",
+        message: "No Gemini API key available. Enter your key in Skills Manager or switch to Ollama / OpenRouter.",
+      });
+    }
+
+    const response = await client.models.generateContent({
+      model: model || "gemini-2.5-flash",
+      contents: [
+        visionPrompt,
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: cleanBase64,
+          },
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+      },
+    });
+
+    const text = response.text;
+    if (text) {
+      const parsed = JSON.parse(text);
+      return res.json({
+        success: true,
+        engine: "gemini-flash",
+        data: parsed,
+      });
+    }
+
+    throw new Error("Empty response from vision engine");
+  } catch (err: any) {
+    console.warn("Cloud AI Vision inference notice:", err.message);
+    return res.status(500).json({
+      error: "CLOUD_INFERENCE_ERROR",
+      message: err.message || "Failed to process frame via remote AI model",
+    });
+  }
+});
+
 // Gemini-powered Crowd Dynamics Intelligence & Incident Dispatch Briefing
 app.post("/api/gemini/analyze-incident", async (req, res) => {
   try {

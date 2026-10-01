@@ -17,6 +17,9 @@ import { CrossCameraTrackingDossierList } from './components/CrossCameraTracking
 import { PersonDossierDrawer } from './components/PersonDossierDrawer';
 import { GeminiIncidentModal } from './components/GeminiIncidentModal';
 import { CommunityEnrollmentModal } from './components/CommunityEnrollmentModal';
+import { SkillsManagerModal } from './components/SkillsManagerModal';
+import { loadSkillsConfig, subscribeSkillsConfig } from './skills/skillsRegistry';
+import { SkillsConfig } from './skills/types';
 import { playAlertTone, playSecuritySiren } from './utils/audioAlert';
 import { subscribeToCommunityFaces, getFirebaseInstance } from './utils/firebase';
 import {
@@ -32,6 +35,7 @@ import {
   Cloud,
   Activity,
   Users,
+  Sliders,
 } from 'lucide-react';
 
 const FALLBACK_CAMERA: CameraFeedInfo = {
@@ -73,8 +77,17 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<'feed' | 'analytics' | 'alerts' | 'registry'>('feed');
 
   // Modals & Audio
+  const [isSkillsModalOpen, setIsSkillsModalOpen] = useState<boolean>(false);
   const [isGeminiModalOpen, setIsGeminiModalOpen] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [skillsConfig, setSkillsConfig] = useState<SkillsConfig>(loadSkillsConfig());
+
+  useEffect(() => {
+    const unsub = subscribeSkillsConfig((updated) => {
+      setSkillsConfig(updated);
+    });
+    return unsub;
+  }, []);
 
   // Computer Vision Overlays
   const [showBoundingBoxes, setShowBoundingBoxes] = useState<boolean>(true);
@@ -213,6 +226,7 @@ export default function App() {
       if (e.key === 'Escape') {
         setSelectedPerson(null);
         setSelectedObject(null);
+        setIsSkillsModalOpen(false);
         setIsGeminiModalOpen(false);
       }
       if (['1', '2', '3', '4'].includes(e.key)) {
@@ -354,6 +368,25 @@ export default function App() {
           >
             <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
             <span>Enroll Face</span>
+          </button>
+
+          {/* DeepCamera-inspired AI Skills & Engine Manager Button */}
+          <button
+            onClick={() => setIsSkillsModalOpen(true)}
+            className={`px-3 py-1.5 rounded-xl border font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+              skillsConfig.engine === 'cloud_neural'
+                ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                : skillsConfig.engine === 'eco_adaptive'
+                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                : 'glass hover:bg-white/[0.08] text-slate-300 border-white/[0.1]'
+            }`}
+            title="Configure Pluggable AI Skills & Inference Engine (Cloud Vision Engine / Eco Adaptive Edge)"
+          >
+            <Sliders className="w-3.5 h-3.5 text-violet-400" />
+            <span className="hidden sm:inline">AI Skills</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-black/40">
+              {skillsConfig.engine === 'cloud_neural' ? '⚡ CLOUD AI' : skillsConfig.engine === 'eco_adaptive' ? '🍃 ECO' : '🚀 TURBO'}
+            </span>
           </button>
 
           <button
@@ -501,6 +534,7 @@ export default function App() {
                         setEnrollEmbedding(emb || null);
                         setIsEnrollModalOpen(true);
                       }}
+                      onOpenSkillsModal={() => setIsSkillsModalOpen(true)}
                     />
                     <div className="absolute top-2 left-2 z-10 glass px-2.5 py-0.5 rounded-lg text-[10px] font-mono text-violet-300 font-bold border border-white/[0.1] pointer-events-none shadow-sm">
                       {cam.name}
@@ -536,6 +570,7 @@ export default function App() {
                   setEnrollEmbedding(emb || null);
                   setIsEnrollModalOpen(true);
                 }}
+                onOpenSkillsModal={() => setIsSkillsModalOpen(true)}
               />
             )}
           </div>
@@ -671,6 +706,12 @@ export default function App() {
           console.log(`[Community App] Enrolled citizen: ${enrolledName}`);
           setPeople((prev) => [...prev]);
         }}
+      />
+
+      {/* 8. PLUGGABLE AI SKILLS & INFERENCE ENGINE MANAGER MODAL */}
+      <SkillsManagerModal
+        isOpen={isSkillsModalOpen}
+        onClose={() => setIsSkillsModalOpen(false)}
       />
     </div>
   );
