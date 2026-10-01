@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { X, CheckCircle2, Cpu, Database, Server, GitBranch, Layers, ShieldCheck, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, CheckCircle2, Cpu, Database, Server, GitBranch, Layers, ShieldCheck, FileText, Container, RefreshCw } from 'lucide-react';
 import { ProjectSpecData } from '../types';
 
 interface ProjectSpecsModalProps {
@@ -9,7 +9,30 @@ interface ProjectSpecsModalProps {
 }
 
 export function ProjectSpecsModal({ isOpen, onClose, specs }: ProjectSpecsModalProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'benchmarks'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'benchmarks' | 'deepcamera'>('overview');
+  const [backendHealth, setBackendHealth] = useState<any>(null);
+  const [isHealthLoading, setIsHealthLoading] = useState(false);
+
+  const fetchHealth = async () => {
+    setIsHealthLoading(true);
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        const data = await res.json();
+        setBackendHealth(data);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch backend health:', e);
+    } finally {
+      setIsHealthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchHealth();
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -75,6 +98,17 @@ export function ProjectSpecsModal({ isOpen, onClose, specs }: ProjectSpecsModalP
           >
             <Cpu className="w-3.5 h-3.5" />
             CV Algorithms
+          </button>
+          <button
+            onClick={() => setActiveTab('deepcamera')}
+            className={`py-3 px-4 border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTab === 'deepcamera'
+                ? 'border-violet-500 text-violet-300 font-bold shadow-[0_4px_15px_rgba(139,92,246,0.25)]'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Container className="w-3.5 h-3.5 text-cyan-400" />
+            DeepCamera & Docker
           </button>
         </div>
 
@@ -248,6 +282,116 @@ export function ProjectSpecsModal({ isOpen, onClose, specs }: ProjectSpecsModalP
                 <div className="text-emerald-400">$ docker run -d --gpus all -p 5000:5000 -p 3000:3000 \</div>
                 <div className="text-emerald-400 pl-4">-e POSTGRES_URI=postgresql://admin@db:5432/crowd_vision \</div>
                 <div className="text-emerald-400 pl-4">crowd-dynamics/facial-recognition:v2.4</div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'deepcamera' && (
+            <div className="space-y-5 font-mono text-xs">
+              {/* SharpAI / DeepCamera Architecture Banner */}
+              <div className="p-3.5 glass-card border border-cyan-500/30 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
+                    <span className="font-bold text-white text-xs">SharpAI / DeepCamera Architecture Integration</span>
+                  </div>
+                  <a
+                    href="https://github.com/SharpAI/DeepCamera"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 underline"
+                  >
+                    github.com/SharpAI/DeepCamera ↗
+                  </a>
+                </div>
+                <p className="text-slate-300 text-[11px] font-sans leading-relaxed">
+                  Our system leverages DeepCamera's proven edge surveillance architecture: isolated stream workers for RTSP/webcams, pairwise cosine distance matrices for unsupervised <strong>DBSCAN</strong> clustering, and resilient facial recognition under partial occlusions.
+                </p>
+              </div>
+
+              {/* Live Backend Telemetry Box */}
+              <div className="p-3.5 glass-card border border-white/[0.08] rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-white font-semibold flex items-center gap-1.5">
+                    <Server className="w-3.5 h-3.5 text-violet-400" />
+                    Live Backend Pipeline Telemetry
+                  </span>
+                  <button
+                    onClick={fetchHealth}
+                    disabled={isHealthLoading}
+                    className="px-2 py-1 rounded-lg glass text-[10px] text-slate-300 hover:text-white flex items-center gap-1 border border-white/10"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isHealthLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">Database Engine</span>
+                    <span className="text-emerald-400 font-semibold">{backendHealth?.dbConnection || "PostgreSQL 16 / SQLite Hybrid"}</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">Deep Learning Framework</span>
+                    <span className="text-amber-300 font-semibold">{backendHealth?.deepLearningStack || "TensorFlow 2.x (MobileNetV2/ArcFace)"}</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">Computer Vision Engine</span>
+                    <span className="text-cyan-300 font-semibold">OpenCV {backendHealth?.openCvVersion || "4.x"} (Optical Flow Farneback)</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">API & Container</span>
+                    <span className="text-purple-300 font-semibold">{backendHealth?.apiEngine || "Flask / Express Hybrid Gateway"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* PostgreSQL Schema Overview */}
+              <div className="p-3.5 glass-card border border-white/[0.08] rounded-xl space-y-2">
+                <span className="text-white font-semibold flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5 text-indigo-400" />
+                  PostgreSQL 16 Relational Schema
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                  <div className="p-2 rounded bg-black/30 border border-white/5">
+                    <span className="text-violet-300 font-bold">cameras</span>
+                    <p className="text-slate-400 text-[10px]">id, name, rtsp_url, zone, fps, status, tripwire</p>
+                  </div>
+                  <div className="p-2 rounded bg-black/30 border border-white/5">
+                    <span className="text-violet-300 font-bold">enrolled_faces</span>
+                    <p className="text-slate-400 text-[10px]">id, name, role, embedding_json, status</p>
+                  </div>
+                  <div className="p-2 rounded bg-black/30 border border-white/5">
+                    <span className="text-violet-300 font-bold">tracked_persons</span>
+                    <p className="text-slate-400 text-[10px]">cluster_id, camera_id, coordinates, occlusion</p>
+                  </div>
+                  <div className="p-2 rounded bg-black/30 border border-white/5">
+                    <span className="text-violet-300 font-bold">cross_camera_handovers</span>
+                    <p className="text-slate-400 text-[10px]">person_cluster_id, from_cam, to_cam, confidence</p>
+                  </div>
+                  <div className="p-2 rounded bg-black/30 border border-white/5">
+                    <span className="text-violet-300 font-bold">security_alerts</span>
+                    <p className="text-slate-400 text-[10px]">type, severity, title, person_cluster_id, status</p>
+                  </div>
+                  <div className="p-2 rounded bg-black/30 border border-white/5">
+                    <span className="text-violet-300 font-bold">crowd_metrics</span>
+                    <p className="text-slate-400 text-[10px]">headcount, density_index, turbulence_index, recorded_at</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Docker Compose Quick Start */}
+              <div className="p-3.5 bg-[#020205] text-slate-200 rounded-xl space-y-2 border border-white/[0.08]">
+                <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                  <span># Multi-Container Orchestration (Docker Compose)</span>
+                  <span className="text-emerald-400 text-[10px]">3 Containers: db, api, web</span>
+                </div>
+                <div className="text-emerald-400 font-mono text-[11px] leading-relaxed">
+                  $ docker-compose up -d --build
+                </div>
+                <p className="text-[10px] text-slate-400 font-sans">
+                  Automatically initializes PostgreSQL 16 on port 5432, launches the Flask OpenCV/TensorFlow vision worker on port 5000, and starts the React Authority Command Center on port 3000.
+                </p>
               </div>
             </div>
           )}

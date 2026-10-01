@@ -52,7 +52,7 @@ export function CameraGridSelector({
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
           <Camera className="w-3.5 h-3.5 text-violet-400" />
-          <span>Connected Devices:</span>
+          <span>Cameras:</span>
         </span>
 
         {/* If multiple cameras exist, allow Multi-Camera Grid */}
@@ -67,7 +67,7 @@ export function CameraGridSelector({
             title="View all connected physical cameras in a multi-stream grid"
           >
             <Grid2X2 className="w-3.5 h-3.5" />
-            <span>Multi-Grid ({cameras.length})</span>
+            <span>Grid ({cameras.length})</span>
           </button>
         )}
 
@@ -75,7 +75,7 @@ export function CameraGridSelector({
         {cameras.length === 0 ? (
           <div className="px-2.5 py-1 rounded-lg glass-card border border-amber-500/30 text-amber-300 text-[11px] flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-            <span>Scanning hardware cameras...</span>
+            <span>Scanning cameras...</span>
           </div>
         ) : (
           cameras.map((cam, idx) => {
@@ -120,72 +120,72 @@ export function CameraGridSelector({
 
       {/* Right: Computer Vision Layer Overlays Toggle */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[10px] text-slate-400 uppercase tracking-wider mr-1">CV Layers:</span>
+        <span className="text-[10px] text-slate-400 uppercase tracking-wider mr-1">Overlays:</span>
 
         {/* Face Bounding Boxes Toggle */}
         <button
           onClick={onToggleBoundingBoxes}
-          className={`px-2 py-1 rounded-lg text-[11px] border transition-all ${
+          className={`px-2.5 py-1 rounded-lg text-[11px] border transition-all ${
             showBoundingBoxes
               ? 'bg-violet-500/20 border-violet-400/70 text-violet-200 font-bold shadow-[0_0_10px_rgba(139,92,246,0.2)]'
               : 'glass-card border-white/[0.08] text-slate-400 hover:text-slate-200'
           }`}
           title="Toggle CNN Face Bounding Boxes"
         >
-          [Face CNN]
+          Faces
         </button>
 
         {/* Objects SSD Toggle */}
         <button
           onClick={onToggleObjects}
-          className={`px-2 py-1 rounded-lg text-[11px] border transition-all flex items-center gap-1 ${
+          className={`px-2.5 py-1 rounded-lg text-[11px] border transition-all flex items-center gap-1 ${
             showObjects
               ? 'bg-cyan-500/20 border-cyan-400/70 text-cyan-200 font-bold shadow-[0_0_10px_rgba(6,182,212,0.2)]'
               : 'glass-card border-white/[0.08] text-slate-400 hover:text-slate-200'
           }`}
-          title="Toggle COCO-SSD Object Detection (backpacks, cell phones, laptops, etc.)"
+          title="Toggle Object Detection"
         >
           <Package className="w-3 h-3" />
-          <span>[Objects SSD]</span>
+          <span>Objects</span>
         </button>
 
         {/* 6-Landmark Mesh Toggle */}
         <button
           onClick={onToggleLandmarks}
-          className={`px-2 py-1 rounded-lg text-[11px] border transition-all ${
+          className={`px-2.5 py-1 rounded-lg text-[11px] border transition-all ${
             showLandmarks
               ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200 font-bold shadow-[0_0_10px_rgba(16,185,129,0.2)]'
               : 'glass-card border-white/[0.08] text-slate-400 hover:text-slate-200'
           }`}
-          title="Toggle 6-Point Facial Landmark Mesh"
+          title="Toggle Facial Landmarks"
         >
-          [Landmarks]
+          Landmarks
         </button>
 
         {/* Optical Flow Vectors Toggle */}
         <button
           onClick={onToggleOpticalFlow}
-          className={`px-2 py-1 rounded-lg text-[11px] border transition-all ${
+          className={`px-2.5 py-1 rounded-lg text-[11px] border transition-all ${
             showOpticalFlow
               ? 'bg-indigo-500/20 border-indigo-400/70 text-indigo-200 font-bold shadow-[0_0_10px_rgba(99,102,241,0.2)]'
               : 'glass-card border-white/[0.08] text-slate-400 hover:text-slate-200'
           }`}
-          title="Toggle Lucas-Kanade Optical Flow Motion Vectors"
+          title="Toggle Optical Motion Flow"
         >
-          [Optical Flow]
+          Motion
         </button>
 
         {/* Security Tripwire Toggle */}
         <button
           onClick={onToggleTripwire}
-          className={`px-2 py-1 rounded-lg text-[11px] border transition-all ${
+          className={`px-2.5 py-1 rounded-lg text-[11px] border transition-all ${
             showTripwire
               ? 'bg-red-500/20 border-red-400/70 text-red-200 font-bold shadow-[0_0_10px_rgba(239,68,68,0.2)]'
               : 'glass-card border-white/[0.08] text-slate-400 hover:text-slate-200'
           }`}
-          title="Toggle Virtual Security Tripwire Boundary"
+          title="Toggle Security Tripwire"
         >
-          [Tripwire]
+          Tripwire
         </button>
       </div>
     </div>

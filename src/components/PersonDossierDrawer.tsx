@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { TrackedPerson, CameraId, IdentifiedObject, RegisteredFace } from '../types';
 import { saveEnrolledFace } from '../utils/faceRecognition';
+import { enrollPersonInCommunity } from '../utils/firebase';
 import {
   isDangerousObject,
   classifyObjectCategory,
@@ -167,12 +168,13 @@ export function PersonDossierDrawer({
 
   const isHighRisk = person.isFlaggedSuspicious || person.riskScore > 75;
 
-  const handleEnrollFace = (e: FormEvent) => {
+  const handleEnrollFace = async (e: FormEvent) => {
     e.preventDefault();
     if (!enrollName.trim()) return;
 
+    const faceId = `ENROLLED_${Date.now()}`;
     const newFace: RegisteredFace = {
-      id: `ENROLLED_${Date.now()}`,
+      id: faceId,
       name: enrollName.trim(),
       role: enrollRole.trim(),
       status: enrollStatus,
@@ -183,7 +185,17 @@ export function PersonDossierDrawer({
       faceCropUrl: person.faceCropUrl,
     };
 
-    saveEnrolledFace(newFace);
+    // Save to Firebase Cloud & Local Registry
+    await enrollPersonInCommunity({
+      id: faceId,
+      name: enrollName.trim(),
+      role: enrollRole.trim(),
+      status: enrollStatus,
+      embedding: newFace.embedding,
+      faceCropUrl: person.faceCropUrl,
+      notes: `Enrolled from camera ${person.camera} via Community Open Dossier`,
+    });
+
     setEnrollSuccess(true);
     if (onFaceEnrolled) onFaceEnrolled(newFace);
 

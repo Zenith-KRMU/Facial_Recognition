@@ -7,7 +7,7 @@ import {
   SuspiciousAlert,
   CrowdDynamicsMetrics,
 } from './types';
-import { INITIAL_PROJECT_SPECS } from './data/projectSpecs';
+
 import { getConnectedCameras } from './utils/cameraDevices';
 import { VisionCanvas } from './components/VisionCanvas';
 import { CameraGridSelector } from './components/CameraGridSelector';
@@ -15,18 +15,23 @@ import { CrowdAnalyticsBar } from './components/CrowdAnalyticsBar';
 import { AlertStreamPanel } from './components/AlertStreamPanel';
 import { CrossCameraTrackingDossierList } from './components/CrossCameraTrackingDossierList';
 import { PersonDossierDrawer } from './components/PersonDossierDrawer';
-import { ProjectSpecsModal } from './components/ProjectSpecsModal';
 import { GeminiIncidentModal } from './components/GeminiIncidentModal';
+import { CommunityEnrollmentModal } from './components/CommunityEnrollmentModal';
 import { playAlertTone, playSecuritySiren } from './utils/audioAlert';
+import { subscribeToCommunityFaces, getFirebaseInstance } from './utils/firebase';
 import {
   Shield,
-  FileText,
   Sparkles,
   Bell,
   Eye,
   Camera,
   AlertOctagon,
   Volume2,
+  UserCheck,
+  Globe,
+  Cloud,
+  Activity,
+  Users,
 } from 'lucide-react';
 
 const FALLBACK_CAMERA: CameraFeedInfo = {
@@ -58,8 +63,16 @@ export default function App() {
   const [selectedPerson, setSelectedPerson] = useState<TrackedPerson | null>(null);
   const [selectedObject, setSelectedObject] = useState<IdentifiedObject | null>(null);
 
+  // Community Open Enrollment & Firebase Cloud Sync State
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState<boolean>(false);
+  const [enrollSnapshot, setEnrollSnapshot] = useState<string | null>(null);
+  const [enrollEmbedding, setEnrollEmbedding] = useState<number[] | null>(null);
+  const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
+
+  // Mobile responsive layout navigation tab
+  const [mobileTab, setMobileTab] = useState<'feed' | 'analytics' | 'alerts' | 'registry'>('feed');
+
   // Modals & Audio
-  const [isSpecsModalOpen, setIsSpecsModalOpen] = useState<boolean>(false);
   const [isGeminiModalOpen, setIsGeminiModalOpen] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
@@ -104,6 +117,21 @@ export default function App() {
       };
     }
   }, [refreshCameras]);
+
+  // Subscribe to real-time open community enrolled faces in Firebase Firestore
+  useEffect(() => {
+    const { db } = getFirebaseInstance();
+    setIsFirebaseConnected(!!db);
+
+    const unsub = subscribeToCommunityFaces((_faces) => {
+      const { db: currentDb } = getFirebaseInstance();
+      setIsFirebaseConnected(!!currentDb);
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
 
   // Real Computer Vision Detections Callback
   const handleDetectionsUpdate = useCallback((detectedPeople: TrackedPerson[], detectedObjects: IdentifiedObject[]) => {
@@ -185,7 +213,6 @@ export default function App() {
       if (e.key === 'Escape') {
         setSelectedPerson(null);
         setSelectedObject(null);
-        setIsSpecsModalOpen(false);
         setIsGeminiModalOpen(false);
       }
       if (['1', '2', '3', '4'].includes(e.key)) {
@@ -284,22 +311,20 @@ export default function App() {
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.35)] border border-violet-400/30">
             <Shield className="w-4 h-4" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xs sm:text-sm font-bold tracking-tight text-white font-mono glow-text">
-                Real-time Facial Recognition & Object Identification
-              </h1>
-              <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399] animate-pulse" />
-                Hardware Camera Sentry
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-sm sm:text-base font-bold tracking-tight text-white font-mono">
+              CrowdVision AI
+            </h1>
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399] animate-pulse" />
+              LIVE SENTRY
+            </span>
+            {isFirebaseConnected && (
+              <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                <Cloud className="w-3 h-3 text-cyan-400" />
+                Cloud Synced
               </span>
-            </div>
-            <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-slate-400">
-              <span className="text-emerald-400 font-semibold">● 100% Real Hardware Cameras</span>
-              <span>• Zero Mock Feeds</span>
-              <span>• BlazeFace CNN</span>
-              <span>• COCO-SSD</span>
-            </div>
+            )}
           </div>
         </div>
 
@@ -312,18 +337,23 @@ export default function App() {
               title="Click to trigger emergency siren broadcast"
             >
               <AlertOctagon className="w-3.5 h-3.5 animate-spin" />
-              <span>{dangerousCount} DANGER OBJECT</span>
+              <span>{dangerousCount} DANGER</span>
               <Volume2 className="w-3 h-3 ml-0.5" />
             </button>
           )}
 
+          {/* Open Community Face Enrollment Button */}
           <button
-            onClick={() => setIsSpecsModalOpen(true)}
-            className="px-3 py-1.5 rounded-xl glass hover:bg-white/[0.08] text-slate-200 hover:text-white border border-white/[0.08] hover:border-white/20 transition-all flex items-center gap-1.5 font-medium shadow-sm"
+            onClick={() => {
+              setEnrollSnapshot(people[0]?.faceCropUrl || null);
+              setEnrollEmbedding(people[0]?.embeddingSample || null);
+              setIsEnrollModalOpen(true);
+            }}
+            className="px-3 py-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 font-semibold transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+            title="Enroll face into community database"
           >
-            <FileText className="w-3.5 h-3.5 text-violet-400" />
-            <span className="hidden sm:inline">Project Proposal & Specs</span>
-            <span className="sm:hidden">Specs</span>
+            <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Enroll Face</span>
           </button>
 
           <button
@@ -331,14 +361,64 @@ export default function App() {
             className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white border border-violet-400/30 transition-all flex items-center gap-1.5 font-semibold shadow-[0_0_20px_rgba(139,92,246,0.35)]"
           >
             <Sparkles className="w-3.5 h-3.5 text-violet-200" />
-            <span className="hidden sm:inline">AI Crowd Dispatch</span>
+            <span className="hidden sm:inline">AI Incident Dispatch</span>
             <span className="sm:hidden">AI Dispatch</span>
           </button>
         </div>
       </header>
 
+      {/* MOBILE RESPONSIVE NAVIGATION TABS (< 1024px) */}
+      <div className="flex lg:hidden glass border-b border-white/[0.08] px-3 py-1.5 gap-1.5 text-xs font-mono shrink-0 z-20 relative bg-black/40">
+        <button
+          onClick={() => setMobileTab('feed')}
+          className={`flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+            mobileTab === 'feed'
+              ? 'bg-violet-600/30 text-white font-bold border border-violet-500/50 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Camera className="w-3.5 h-3.5" />
+          <span>Feed</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('analytics')}
+          className={`flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+            mobileTab === 'analytics'
+              ? 'bg-indigo-600/30 text-white font-bold border border-indigo-500/50 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          <span>Metrics</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('alerts')}
+          className={`flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+            mobileTab === 'alerts'
+              ? 'bg-red-600/30 text-red-200 font-bold border border-red-500/50 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Bell className="w-3.5 h-3.5" />
+          <span>Alerts ({activeAlertCount})</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('registry')}
+          className={`flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+            mobileTab === 'registry'
+              ? 'bg-emerald-600/30 text-emerald-200 font-bold border border-emerald-500/50 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>Registry</span>
+        </button>
+      </div>
+
       {/* 2. CROWD DYNAMICS ANALYTICS BAR */}
-      <section className="px-3 sm:px-4 py-2 bg-white/[0.015] backdrop-blur-md border-b border-white/[0.06] shrink-0 z-20 relative">
+      <section className={`px-3 sm:px-4 py-2 bg-white/[0.015] backdrop-blur-md border-b border-white/[0.06] shrink-0 z-20 relative ${
+        mobileTab === 'analytics' ? 'block' : 'hidden lg:block'
+      }`}>
         <CrowdAnalyticsBar
           metrics={crowdMetrics}
           activeAlertCount={activeAlertCount}
@@ -351,7 +431,9 @@ export default function App() {
       {/* 3. MAIN WORKSPACE */}
       <main className="flex-1 flex flex-col lg:flex-row p-3 gap-3 overflow-hidden min-h-0 z-20 relative">
         {/* Left / Center: Real Connected Camera Feed Stage */}
-        <div className="flex-[3] flex flex-col gap-2 min-h-0 min-w-0">
+        <div className={`flex-[3] flex flex-col gap-2 min-h-0 min-w-0 ${
+          mobileTab === 'feed' ? 'flex' : 'hidden lg:flex'
+        }`}>
           <CameraGridSelector
             cameras={cameras}
             selectedCameraId={selectedCameraId}
@@ -414,6 +496,11 @@ export default function App() {
                       showTripwire={showTripwire}
                       onDetectionsUpdate={handleDetectionsUpdate}
                       onTriggerAlert={handleTriggerAlert}
+                      onOpenEnrollModal={(snap, emb) => {
+                        setEnrollSnapshot(snap || null);
+                        setEnrollEmbedding(emb || null);
+                        setIsEnrollModalOpen(true);
+                      }}
                     />
                     <div className="absolute top-2 left-2 z-10 glass px-2.5 py-0.5 rounded-lg text-[10px] font-mono text-violet-300 font-bold border border-white/[0.1] pointer-events-none shadow-sm">
                       {cam.name}
@@ -444,19 +531,29 @@ export default function App() {
                 showTripwire={showTripwire}
                 onDetectionsUpdate={handleDetectionsUpdate}
                 onTriggerAlert={handleTriggerAlert}
+                onOpenEnrollModal={(snap, emb) => {
+                  setEnrollSnapshot(snap || null);
+                  setEnrollEmbedding(emb || null);
+                  setIsEnrollModalOpen(true);
+                }}
               />
             )}
           </div>
         </div>
 
         {/* Right Section: Incident Alerts & Biometric Detections */}
-        <aside className="flex-[1.4] flex flex-col gap-2 min-h-[380px] min-w-0 max-w-full lg:max-w-md">
+        <aside className={`flex-[1.4] flex flex-col gap-2 min-h-[380px] min-w-0 max-w-full lg:max-w-md ${
+          mobileTab === 'alerts' || mobileTab === 'registry' ? 'flex' : 'hidden lg:flex'
+        }`}>
           {/* Tabs for Alerts vs Telemetry */}
           <div className="flex glass border border-white/[0.08] rounded-xl p-1 text-xs font-mono">
             <button
-              onClick={() => setRightSidebarTab('alerts')}
+              onClick={() => {
+                setRightSidebarTab('alerts');
+                setMobileTab('alerts');
+              }}
               className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                rightSidebarTab === 'alerts'
+                (mobileTab === 'alerts' || rightSidebarTab === 'alerts') && mobileTab !== 'registry'
                   ? 'bg-gradient-to-r from-red-600/30 to-rose-600/30 text-red-200 font-bold border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
                   : 'text-slate-400 hover:text-white'
               }`}
@@ -465,9 +562,12 @@ export default function App() {
               <span>Alerts ({activeAlertCount})</span>
             </button>
             <button
-              onClick={() => setRightSidebarTab('registry')}
+              onClick={() => {
+                setRightSidebarTab('registry');
+                setMobileTab('registry');
+              }}
               className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                rightSidebarTab === 'registry'
+                mobileTab === 'registry' || (rightSidebarTab === 'registry' && mobileTab !== 'alerts')
                   ? 'bg-gradient-to-r from-violet-600/30 to-indigo-600/30 text-violet-200 font-bold border border-violet-500/50 shadow-[0_0_15px_rgba(139,92,246,0.2)]'
                   : 'text-slate-400 hover:text-white'
               }`}
@@ -479,7 +579,7 @@ export default function App() {
 
           {/* Tab Content */}
           <div className="flex-1 min-h-0">
-            {rightSidebarTab === 'alerts' ? (
+            {(mobileTab === 'alerts' || rightSidebarTab === 'alerts') && mobileTab !== 'registry' ? (
               <AlertStreamPanel
                 alerts={alerts}
                 onAcknowledgeAlert={handleAcknowledgeAlert}
@@ -551,12 +651,6 @@ export default function App() {
         }}
       />
 
-      {/* 5. PROJECT SPECS MODAL */}
-      <ProjectSpecsModal
-        isOpen={isSpecsModalOpen}
-        onClose={() => setIsSpecsModalOpen(false)}
-        specs={INITIAL_PROJECT_SPECS}
-      />
 
       {/* 6. GEMINI AI INCIDENT DISPATCH MODAL */}
       <GeminiIncidentModal
@@ -565,6 +659,18 @@ export default function App() {
         cameras={cameras}
         alerts={alerts}
         metrics={crowdMetrics}
+      />
+
+      {/* 7. OPEN COMMUNITY FACE ENROLLMENT & FIREBASE CLOUD MODAL */}
+      <CommunityEnrollmentModal
+        isOpen={isEnrollModalOpen}
+        onClose={() => setIsEnrollModalOpen(false)}
+        activeFaceSnapshot={enrollSnapshot}
+        activeEmbedding={enrollEmbedding}
+        onEnrolledSuccess={(enrolledName) => {
+          console.log(`[Community App] Enrolled citizen: ${enrolledName}`);
+          setPeople((prev) => [...prev]);
+        }}
       />
     </div>
   );

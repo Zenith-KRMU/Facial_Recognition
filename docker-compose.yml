@@ -1,0 +1,74 @@
+services:
+  # 1. PostgreSQL 16 Relational Database Service
+  db:
+    image: postgres:16-alpine
+    container_name: cv-postgres-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: crowd_dynamics
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d crowd_dynamics"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cv-network
+
+  # 2. Flask Computer Vision & Deep Learning Engine (TensorFlow 2.x, OpenCV 4.x)
+  flask-backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: cv-flask-pipeline
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://postgres:postgrespassword@db:5432/crowd_dynamics
+      FLASK_HOST: "0.0.0.0"
+      FLASK_PORT: "5000"
+      FLASK_DEBUG: "False"
+      OPENCV_INFERENCE_WIDTH: "640"
+      OPENCV_INFERENCE_HEIGHT: "360"
+      DBSCAN_EPS: "0.38"
+      LOITERING_THRESHOLD_SEC: "180"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app/backend
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cv-network
+
+  # 3. React Web Dashboard & Authority Command Interface
+  web-dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: cv-authority-dashboard
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      FLASK_API_URL: "http://flask-backend:5000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - flask-backend
+    networks:
+      - cv-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  cv-network:
+    driver: bridge

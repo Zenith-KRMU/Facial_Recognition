@@ -35,6 +35,9 @@ import {
   Video,
   Volume2,
   VolumeX,
+  Zap,
+  UserCheck,
+  UserPlus,
 } from 'lucide-react';
 
 interface VisionCanvasProps {
@@ -53,6 +56,7 @@ interface VisionCanvasProps {
   onDetectionsUpdate: (people: TrackedPerson[], objects: IdentifiedObject[]) => void;
   onTriggerAlert: (alert: SuspiciousAlert) => void;
   onCameraStatusChange?: (status: 'ONLINE' | 'ACTIVE_RECORDING' | 'PERMISSION_REQUIRED' | 'OFFLINE') => void;
+  onOpenEnrollModal?: (faceSnapshot?: string, embedding?: number[]) => void;
 }
 
 export function VisionCanvas({
@@ -71,12 +75,16 @@ export function VisionCanvas({
   onDetectionsUpdate,
   onTriggerAlert,
   onCameraStatusChange,
+  onOpenEnrollModal,
 }: VisionCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+
+  // Performance Mode (adaptive cross-device scaling: AUTO | TURBO | BALANCED | ECO)
+  const [perfMode, setPerfMode] = useState<'AUTO' | 'TURBO' | 'BALANCED' | 'ECO'>('AUTO');
 
   // Model loading state
   const [modelsReady, setModelsReady] = useState(false);
@@ -729,8 +737,14 @@ export function VisionCanvas({
       } finally {
         isInferringRef.current = false;
         if (!isCancelled) {
-          // Schedule next tick (interval ~70ms = ~14 FPS inference)
-          timerId = setTimeout(runInferenceCycle, 70);
+          const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || (navigator as any).maxTouchPoints > 0 || window.innerWidth < 768);
+          let delay = 50;
+          if (perfMode === 'TURBO') delay = 25;
+          else if (perfMode === 'ECO') delay = 130;
+          else if (perfMode === 'BALANCED') delay = 65;
+          else delay = isMobile ? 95 : 45; // AUTO
+
+          timerId = setTimeout(runInferenceCycle, delay);
         }
       }
     };
@@ -741,7 +755,7 @@ export function VisionCanvas({
       isCancelled = true;
       if (timerId) clearTimeout(timerId);
     };
-  }, [modelsReady, cameraActive, customMediaActive, camera.id]);
+  }, [modelsReady, cameraActive, customMediaActive, camera.id, perfMode]);
 
   // 5. Dedicated 60 FPS Synchronous Canvas Render Loop
   useEffect(() => {
@@ -957,6 +971,24 @@ export function VisionCanvas({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onTouchStart={(e) => {
+          if (zoomLevel > 1.0 && e.touches.length === 1) {
+            setIsDragging(true);
+            setDragStart({ x: e.touches[0].clientX - panOffset.x, y: e.touches[0].clientY - panOffset.y });
+          }
+        }}
+        onTouchMove={(e) => {
+          if (isDragging && zoomLevel > 1.0 && e.touches.length === 1) {
+            const newX = e.touches[0].clientX - dragStart.x;
+            const newY = e.touches[0].clientY - dragStart.y;
+            const maxPan = 180 * (zoomLevel - 1);
+            setPanOffset({
+              x: Math.max(-maxPan, Math.min(maxPan, newX)),
+              y: Math.max(-maxPan, Math.min(maxPan, newY)),
+            });
+          }
+        }}
+        onTouchEnd={() => setIsDragging(false)}
         className={`w-full h-full object-contain ${
           zoomLevel > 1.0 ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
         }`}
@@ -970,11 +1002,11 @@ export function VisionCanvas({
               <Camera className="w-6 h-6" />
             </div>
 
-            <h3 className="text-sm font-bold text-white font-mono tracking-tight glow-text mb-1">
-              Live Hardware Camera Feed
+            <h3 className="text-sm font-bold text-white font-mono tracking-tight mb-1">
+              Camera Inactive
             </h3>
-            <p className="text-xs text-slate-300 mb-4 font-sans">
-              System is configured to run <span className="text-violet-300 font-semibold">100% on real hardware cameras</span>. Connect your webcam or USB camera to begin real-time facial recognition and object sentry.
+            <p className="text-xs text-slate-400 mb-4 font-sans">
+              Connect your camera or upload media to start real-time detection.
             </p>
 
             {cameraError && (
@@ -1095,6 +1127,37 @@ export function VisionCanvas({
           <span>{customMediaActive !== 'NONE' ? customMediaName.slice(0, 12) + '...' : 'Upload File'}</span>
         </button>
 
+        {/* Open Community Face Enrollment Button */}
+        {onOpenEnrollModal && (
+          <button
+            onClick={() => {
+              const firstPerson = localTrackedPeople[0];
+              const snapshot = firstPerson?.faceCropUrl || null;
+              const emb = firstPerson?.embeddingSample || null;
+              onOpenEnrollModal(snapshot, emb);
+            }}
+            className="px-3 py-1.5 text-xs font-mono font-medium rounded-xl border border-emerald-500/50 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-all flex items-center gap-1.5 backdrop-blur-xl shadow-lg"
+            title="Capture current face and enroll into Open Community Firebase Registry"
+          >
+            <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Enroll Face</span>
+          </button>
+        )}
+
+        {/* Cross-Device Performance Mode Switcher */}
+        <button
+          onClick={() => {
+            const modes: Array<'AUTO' | 'TURBO' | 'BALANCED' | 'ECO'> = ['AUTO', 'TURBO', 'BALANCED', 'ECO'];
+            const next = modes[(modes.indexOf(perfMode) + 1) % modes.length];
+            setPerfMode(next);
+          }}
+          className="px-2.5 py-1.5 text-xs font-mono rounded-xl glass hover:bg-white/[0.08] border border-white/[0.1] text-slate-300 hover:text-white transition-all flex items-center gap-1.5 backdrop-blur-xl shadow-lg"
+          title={`Adaptive Performance Mode: ${perfMode}. Click to cycle between Auto, Turbo, Balanced, and Eco.`}
+        >
+          <Zap className={`w-3.5 h-3.5 ${perfMode === 'ECO' ? 'text-emerald-400' : perfMode === 'TURBO' ? 'text-amber-400' : 'text-violet-400'}`} />
+          <span>{perfMode}</span>
+        </button>
+
         {/* PTZ Zoom Controls */}
         <div className="flex items-center glass border border-white/[0.1] rounded-xl p-0.5 backdrop-blur-xl shadow-lg">
           <button
@@ -1130,33 +1193,6 @@ export function VisionCanvas({
         </div>
       </div>
 
-      {/* Bottom Floating Legend Bar */}
-      <div className="absolute bottom-3 left-3 flex items-center gap-3 z-20 pointer-events-none text-[11px] font-mono glass border border-white/[0.1] px-3.5 py-1.5 rounded-xl backdrop-blur-xl shadow-lg flex-wrap">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
-          <span className="text-slate-300">Registered Face</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-violet-400 shadow-[0_0_6px_#a78bfa]" />
-          <span className="text-slate-300">Unregistered Face</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee]" />
-          <span className="text-slate-300">Public Object</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]" />
-          <span className="text-slate-300">🚗 Vehicles</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_6px_#c084fc]" />
-          <span className="text-slate-300">🖊️ Pens & Stationery</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_6px_#ef4444]" />
-          <span className="text-red-400 font-bold">🔪 Dangerous Weapons (Siren)</span>
-        </div>
-      </div>
     </div>
   );
 }
